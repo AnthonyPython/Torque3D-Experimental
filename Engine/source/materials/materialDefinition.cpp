@@ -188,6 +188,8 @@ Material::Material()
       mMatInfoFlags[i] = 0.0f;
 
       mGlowMul[i] = 0.0f;
+
+      mMultConstant.set(1.0f, 1.0f, 1.0f, -1.0f);
    }
 
    dMemset(mCellIndex, 0, sizeof(mCellIndex));
@@ -308,7 +310,7 @@ void Material::initPersistFields()
       INITPERSISTFIELD_IMAGEASSET_ARRAY(LightMap, MAX_STAGES, Material, "LightMap");
       INITPERSISTFIELD_IMAGEASSET_ARRAY(ToneMap, MAX_STAGES, Material, "ToneMap");
    endGroup("Advanced Texture Maps");
-   
+
    addGroup("Accumulation Properties");
       addProtectedField("accuEnabled", TYPEID< bool >(), Offset(mAccuEnabled, Material),
          &_setAccuEnabled, &defaultProtectedGetFn, MAX_STAGES, "Accumulation texture.");
@@ -328,7 +330,7 @@ void Material::initPersistFields()
       addFieldV("accuSpecular", TypeRangedF32, Offset(mAccuSpecular, Material), &CommonValidators::NormalizedFloat, MAX_STAGES,
          "Changes specularity to this value where the accumulated material is present.");
    endGroup("Accumulation Properties");
-   
+
    addGroup("Lighting Properties");
       addField("receiveShadows", TypeBool, Offset(mReceiveShadows, Material), MAX_STAGES,
          "Shadows being cast onto the material.");
@@ -449,6 +451,9 @@ void Material::initPersistFields()
          "emitter.\n\n"
          "@see ParticleData::colors");
 
+      addField("multConstant", TypeColorF, Offset(mMultConstant, Material), MAX_STAGES,
+         "A constant color to multiply with the material's base color. Used by the ConstantMult feature.");
+
       addField("footstepSoundId", TypeS32, Offset(mFootstepSoundId, Material),
          "What sound to play from the PlayerData sound list when the player walks over the material.  -1 (default) to not play any sound.\n"
          "\n"
@@ -499,7 +504,7 @@ void Material::initPersistFields()
    #endif
    endGroup("Behavioral (All Layers)");
 
-   // For backwards compatibility.  
+   // For backwards compatibility.
   //
   // They point at the new 'map' fields, but reads always return
   // an empty string and writes only apply if the value is not empty.
@@ -598,7 +603,7 @@ void Material::inspectPostApply()
 {
    Parent::inspectPostApply();
 
-   // Reload the material instances which 
+   // Reload the material instances which
    // use this material.
    if (isProperlyAdded())
       reload();

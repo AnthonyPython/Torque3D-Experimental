@@ -106,6 +106,9 @@ void ShaderConstHandles::init( GFXShader *shader, CustomMaterial* mat /*=NULL*/)
    mDetailBumpStrength = shader->getShaderConstHandle( "$detailBumpStrength" );
    mViewProjSC = shader->getShaderConstHandle( "$viewProj" );
 
+   mMultConstSC = shader->getShaderConstHandle("$multConst");
+
+
    // MFT_ImposterVert
    mImposterUVs = shader->getShaderConstHandle( "$imposterUVs" );
    mImposterLimits = shader->getShaderConstHandle( "$imposterLimits" );
@@ -187,7 +190,7 @@ ProcessedShaderMaterial::~ProcessedShaderMaterial()
 //
 // Material init
 //
-bool ProcessedShaderMaterial::init( const FeatureSet &features, 
+bool ProcessedShaderMaterial::init( const FeatureSet &features,
                                     const GFXVertexFormat *vertexFormat,
                                     const MatFeaturesDelegate &featuresDelegate )
 {
@@ -195,7 +198,7 @@ bool ProcessedShaderMaterial::init( const FeatureSet &features,
    _setStageData();
 
    // Determine how many stages we use
-   mMaxStages = getNumStages(); 
+   mMaxStages = getNumStages();
    mVertexFormat = vertexFormat;
    mFeatures.clear();
    mStateHint.clear();
@@ -207,7 +210,7 @@ bool ProcessedShaderMaterial::init( const FeatureSet &features,
 
       // Determine the features of this stage
       _determineFeatures( i, fd, features );
-   
+
       // Let the delegate poke at the features.
       if ( featuresDelegate )
          featuresDelegate( this, i, fd, features );
@@ -222,7 +225,7 @@ bool ProcessedShaderMaterial::init( const FeatureSet &features,
    _initMaterialParameters();
    mDefaultParameters =  allocMaterialParameters();
    setMaterialParameters( mDefaultParameters, 0 );
-   mStateHint.init( this );   
+   mStateHint.init( this );
 
    // Enable instancing if we have it.
    if ( mFeatures.hasFeature( MFT_UseInstancing ) )
@@ -247,9 +250,9 @@ bool ProcessedShaderMaterial::init( const FeatureSet &features,
 
 U32 ProcessedShaderMaterial::getNumStages()
 {
-   // Loops through all stages to determine how many 
-   // stages we actually use.  
-   // 
+   // Loops through all stages to determine how many
+   // stages we actually use.
+   //
    // The first stage is always active else we shouldn't be
    // creating the material to begin with.
    U32 numStages = 1;
@@ -271,11 +274,11 @@ U32 ProcessedShaderMaterial::getNumStages()
          }
       }
 
-      // If we have a texture for the a feature the 
+      // If we have a texture for the a feature the
       // stage is active.
       if ( mStages[i].hasValidTex() )
          stageActive = true;
-      
+
       // If this stage has diffuse color, it's active
       if (  mMaterial->mDiffuse[i].alpha > 0 &&
             mMaterial->mDiffuse[i] != LinearColorF::WHITE )
@@ -293,8 +296,8 @@ U32 ProcessedShaderMaterial::getNumStages()
    return numStages;
 }
 
-void ProcessedShaderMaterial::_determineFeatures(  U32 stageNum, 
-                                                   MaterialFeatureData &fd, 
+void ProcessedShaderMaterial::_determineFeatures(  U32 stageNum,
+                                                   MaterialFeatureData &fd,
                                                    const FeatureSet &features )
 {
    if (GFX->getAdapterType() == NullDevice) return;
@@ -305,7 +308,7 @@ void ProcessedShaderMaterial::_determineFeatures(  U32 stageNum,
 
    bool lastStage = stageNum == (mMaxStages-1);
 
-   // First we add all the features which the 
+   // First we add all the features which the
    // material has defined.
    if (mMaterial->mInvertRoughness[stageNum])
       fd.features.addFeature(MFT_InvertRoughness);
@@ -362,12 +365,12 @@ void ProcessedShaderMaterial::_determineFeatures(  U32 stageNum,
    }
 
    if ( mMaterial->mAnimFlags[stageNum] )
-      fd.features.addFeature( MFT_TexAnim );  
+      fd.features.addFeature( MFT_TexAnim );
 
    if ( mMaterial->mVertLit[stageNum] )
       fd.features.addFeature( MFT_VertLit );
-   
-   // cubemaps only available on stage 0 for now - bramage   
+
+   // cubemaps only available on stage 0 for now - bramage
    if ( stageNum < 1 && mMaterial->isTranslucent() &&
          (  (  mMaterial->mCubemapData && mMaterial->mCubemapData->mCubemap ) ||
                mMaterial->mDynamicCubemap ) /*&& !features.hasFeature(MFT_ReflectionProbes) */ )
@@ -377,7 +380,7 @@ void ProcessedShaderMaterial::_determineFeatures(  U32 stageNum,
 
    fd.features.addFeature( MFT_Visibility );
 
-   if (  lastStage && 
+   if (  lastStage &&
          (  !gClientSceneGraph->usePostEffectFog() ||
             fd.features.hasFeature( MFT_IsTranslucent ) ||
             fd.features.hasFeature( MFT_ForwardShading )) )
@@ -406,18 +409,18 @@ void ProcessedShaderMaterial::_determineFeatures(  U32 stageNum,
    FeatureSet mergeFeatures;
    mStages[stageNum].getFeatureSet( &mergeFeatures );
    fd.features.merge( mergeFeatures );
-   
-   if ( fd.features[ MFT_NormalMap ] )   
-   {   
-      if (  mStages[stageNum].getTex( MFT_NormalMap )->mFormat == GFXFormatBC3 &&   
-           !mStages[stageNum].getTex( MFT_NormalMap )->mHasTransparency )   
+
+   if ( fd.features[ MFT_NormalMap ] )
+   {
+      if (  mStages[stageNum].getTex( MFT_NormalMap )->mFormat == GFXFormatBC3 &&
+           !mStages[stageNum].getTex( MFT_NormalMap )->mHasTransparency )
          fd.features.addFeature( MFT_IsBC3nm );
       else if ( mStages[stageNum].getTex(MFT_NormalMap)->mFormat == GFXFormatBC5 &&
             !mStages[stageNum].getTex(MFT_NormalMap)->mHasTransparency )
          fd.features.addFeature( MFT_IsBC5nm );
    }
 
-   // Now for some more advanced features that we 
+   // Now for some more advanced features that we
    // cannot do on SM 2.0 and below.
    if ( shaderVersion > 2.0f )
    {
@@ -459,15 +462,15 @@ void ProcessedShaderMaterial::_determineFeatures(  U32 stageNum,
    }
 
    // we need both diffuse and normal maps + sm3 to have an accu map
-   if(   fd.features[ MFT_AccuMap ] && 
-       ( !fd.features[ MFT_DiffuseMap ] || 
+   if(   fd.features[ MFT_AccuMap ] &&
+       ( !fd.features[ MFT_DiffuseMap ] ||
          !fd.features[ MFT_NormalMap ] ||
          GFX->getPixelShaderVersion() < 3.0f ) ) {
       AssertWarn(false, "SAHARA: Using an Accu Map requires SM 3.0 and a normal map.");
       fd.features.removeFeature( MFT_AccuMap );
       mHasAccumulation = false;
    }
-   
+
    // Without a base texture use the diffuse color
    // feature to ensure some sort of output.
    if (!fd.features[MFT_DiffuseMap])
@@ -480,15 +483,15 @@ void ProcessedShaderMaterial::_determineFeatures(  U32 stageNum,
 
    // If we have a diffuse map and the alpha on the diffuse isn't
    // zero and the color isn't pure white then multiply the color.
-   else if (   mMaterial->mDiffuse[stageNum].alpha > 0.0f && 
+   else if (   mMaterial->mDiffuse[stageNum].alpha > 0.0f &&
                mMaterial->mDiffuse[stageNum] != LinearColorF::WHITE )
       fd.features.addFeature( MFT_DiffuseColor );
 
-   // If lightmaps or tonemaps are enabled or we 
-   // don't have a second UV set then we cannot 
+   // If lightmaps or tonemaps are enabled or we
+   // don't have a second UV set then we cannot
    // use the overlay texture.
-   if (  fd.features[MFT_LightMap] || 
-         fd.features[MFT_ToneMap] || 
+   if (  fd.features[MFT_LightMap] ||
+         fd.features[MFT_ToneMap] ||
          mVertexFormat->getTexCoordCount() < 2 )
       fd.features.removeFeature( MFT_OverlayMap );
 
@@ -500,9 +503,9 @@ void ProcessedShaderMaterial::_determineFeatures(  U32 stageNum,
    if ( mVertexFormat->getTexCoordCount() < 2 )
       fd.features.removeFeature( MFT_ToneMap );
 
-   // Always add the HDR output feature.  
+   // Always add the HDR output feature.
    //
-   // It will be filtered out if it was disabled 
+   // It will be filtered out if it was disabled
    // for this material creation below.
    //
    // Also the shader code will evaluate to a nop
@@ -515,11 +518,11 @@ void ProcessedShaderMaterial::_determineFeatures(  U32 stageNum,
    // If vertex color is enabled on the material's stage and
    // color is present in vertex format, add diffuse vertex
    // color feature.
-   
+
    if (  mMaterial->mVertColor[ stageNum ] &&
          mVertexFormat->hasColor() )
       fd.features.addFeature( MFT_DiffuseVertColor );
-   
+
    if (mMaterial->mGlow[stageNum])
       fd.features.addFeature(MFT_GlowMask);
 
@@ -527,11 +530,11 @@ void ProcessedShaderMaterial::_determineFeatures(  U32 stageNum,
    for ( U32 i = 0; i < FEATUREMGR->getFeatureCount(); i++ )
    {
       const FeatureInfo &info = FEATUREMGR->getAt( i );
-      info.feature->determineFeature(  mMaterial, 
-                                       mVertexFormat, 
-                                       stageNum, 
-                                       *info.type, 
-                                       features, 
+      info.feature->determineFeature(  mMaterial,
+                                       mVertexFormat,
+                                       stageNum,
+                                       *info.type,
+                                       features,
                                        &fd );
    }
 
@@ -541,7 +544,10 @@ void ProcessedShaderMaterial::_determineFeatures(  U32 stageNum,
       fd.features.addFeature( MFT_HardwareSkinning );
    }
 
-   // Now disable any features that were 
+   if ( mMaterial->mMultConstant.alpha > -1.0f )
+      fd.features.addFeature( MFT_ConstantMult );
+
+   // Now disable any features that were
    // not part of the input feature handle.
    fd.features.filter( features );
 }
@@ -555,7 +561,7 @@ bool ProcessedShaderMaterial::_createPasses( MaterialFeatureData &stageFeatures,
    for( U32 featureIDx=0; featureIDx < FEATUREMGR->getFeatureCount(); featureIDx++ )
    {
       const FeatureInfo &info = FEATUREMGR->getAt(featureIDx);
-      if ( !stageFeatures.features.hasFeature( *info.type ) ) 
+      if ( !stageFeatures.features.hasFeature( *info.type ) )
          continue;
 
       U32 numTexReg = info.feature->getResources( stageFeatures ).numTexReg;
@@ -618,16 +624,16 @@ bool ProcessedShaderMaterial::_createPasses( MaterialFeatureData &stageFeatures,
    }
 
    return true;
-} 
+}
 
 void ProcessedShaderMaterial::_initMaterialParameters()
-{   
+{
    // Cleanup anything left first.
    SAFE_DELETE( mDefaultParameters );
    for ( U32 i = 0; i < mParameterHandles.size(); i++ )
       SAFE_DELETE( mParameterHandles[i] );
 
-   // Gather the shaders as they all need to be 
+   // Gather the shaders as they all need to be
    // passed to the ShaderMaterialParameterHandles.
    Vector<GFXShader*> shaders;
    shaders.setSize( mPasses.size() );
@@ -652,8 +658,8 @@ void ProcessedShaderMaterial::_initMaterialParameters()
    }
 }
 
-bool ProcessedShaderMaterial::_addPass( ShaderRenderPassData &rpd, 
-                                       U32 &texIndex, 
+bool ProcessedShaderMaterial::_addPass( ShaderRenderPassData &rpd,
+                                       U32 &texIndex,
                                        MaterialFeatureData &fd,
                                        U32 stageNum,
                                        const FeatureSet &features )
@@ -683,7 +689,7 @@ bool ProcessedShaderMaterial::_addPass( ShaderRenderPassData &rpd,
    // If a pass glows, we glow
    if( rpd.mGlow )
       mHasGlow = true;
- 
+
    ShaderRenderPassData *newPass = new ShaderRenderPassData( rpd );
    mPasses.push_back( newPass );
 
@@ -691,7 +697,7 @@ bool ProcessedShaderMaterial::_addPass( ShaderRenderPassData &rpd,
    ShaderConstHandles *handles = _getShaderConstHandles( mPasses.size()-1 );
    AssertFatal(handles,"");
    for(int i = 0; i < rpd.mNumTex; i++)
-   { 
+   {
       if(rpd.mSamplerNames[i].isEmpty())
       {
          handles->mTexHandlesSC[i] = newPass->shader->getShaderConstHandle( String::EmptyString );
@@ -703,11 +709,11 @@ bool ProcessedShaderMaterial::_addPass( ShaderRenderPassData &rpd,
       if( !samplerName.startsWith("$"))
          samplerName.insert(0, "$");
 
-      GFXShaderConstHandle *handle = newPass->shader->getShaderConstHandle( samplerName ); 
+      GFXShaderConstHandle *handle = newPass->shader->getShaderConstHandle( samplerName );
 
       handles->mTexHandlesSC[i] = handle;
-      handles->mRTParamsSC[i] = newPass->shader->getShaderConstHandle( String::ToString( "$rtParams%s", samplerName.c_str()+1 ) ); 
-      
+      handles->mRTParamsSC[i] = newPass->shader->getShaderConstHandle( String::ToString( "$rtParams%s", samplerName.c_str()+1 ) );
+
       AssertFatal( handle,"");
    }
 
@@ -715,7 +721,7 @@ bool ProcessedShaderMaterial::_addPass( ShaderRenderPassData &rpd,
    for( U32 i=0; i < FEATUREMGR->getFeatureCount(); i++ )
    {
       const FeatureInfo &info = FEATUREMGR->getAt( i );
-      if ( !fd.features.hasFeature( *info.type ) ) 
+      if ( !fd.features.hasFeature( *info.type ) )
          continue;
 
       ShaderFeatureConstHandles *fh = info.feature->createConstHandles( rpd.shader, mUserObject );
@@ -725,9 +731,10 @@ bool ProcessedShaderMaterial::_addPass( ShaderRenderPassData &rpd,
 
    rpd.reset();
    texIndex = 0;
-   
+
    return true;
 }
+
 
 void ProcessedShaderMaterial::_setPassBlendOp( ShaderFeature *sf,
                                               ShaderRenderPassData &passData,
@@ -754,7 +761,7 @@ void ProcessedShaderMaterial::_setPassBlendOp( ShaderFeature *sf,
       {
          // numTegReg is more than zero, if this feature
          // doesn't have the same blend operation, then
-         // we need to create yet another pass 
+         // we need to create yet another pass
          if( sf->getBlendOp() != passData.mBlendOp && mPasses[mPasses.size()-1]->mStageNum == stageNum)
          {
             _addPass( passData, texIndex, stageFeatures, stageNum, features );
@@ -762,7 +769,7 @@ void ProcessedShaderMaterial::_setPassBlendOp( ShaderFeature *sf,
          }
       }
    }
-} 
+}
 
 //
 // Runtime / rendering
@@ -789,8 +796,8 @@ bool ProcessedShaderMaterial::setupPass( SceneRenderState *state, const SceneDat
    if( rpd->shader )
    {
       GFX->setShader( rpd->shader );
-      GFX->setShaderConstBuffer(_getShaderConstBuffer(pass));      
-      _setShaderConstants(state, sgData, pass);      
+      GFX->setShaderConstBuffer(_getShaderConstBuffer(pass));
+      _setShaderConstants(state, sgData, pass);
 
       // If we're instancing then do the initial step to get
       // set the vb pointer to the const buffer.
@@ -801,7 +808,7 @@ bool ProcessedShaderMaterial::setupPass( SceneRenderState *state, const SceneDat
    {
       GFX->setupGenericShaders();
       GFX->setShaderConstBuffer(NULL);
-   } 
+   }
 
    // Set our textures
    setTextureStages( state, sgData, pass );
@@ -825,7 +832,7 @@ void ProcessedShaderMaterial::setTextureStages( SceneRenderState *state, const S
    RenderPassData *rpd = mPasses[pass];
    GFXShaderConstBuffer* shaderConsts = _getShaderConstBuffer(pass);
    NamedTexTarget *texTarget;
-   GFXTextureObject *texObject; 
+   GFXTextureObject *texObject;
 
    for( U32 i=0; i<rpd->mNumTex; i++ )
    {
@@ -872,7 +879,7 @@ void ProcessedShaderMaterial::setTextureStages( SceneRenderState *state, const S
             else
                GFX->setTexture( i, GFXTexHandle::ZERO );
             break;
-            
+
          case Material::TexTarget:
             {
                texTarget = rpd->mTexSlot[i].texTarget;
@@ -951,7 +958,7 @@ void ProcessedShaderMaterial::_setTextureTransforms(const U32 pass)
 
    // --- Rotation Animation ---
    if (mMaterial->mAnimFlags[pass] & Material::Rotate)
-   { 
+   {
       F32 rotationAngle = (mMaterial->mAnimFlags[pass] & Material::Wave)
          ? waveOffset * M_2PI
          : mMaterial->mRotPos[pass];
@@ -960,7 +967,7 @@ void ProcessedShaderMaterial::_setTextureTransforms(const U32 pass)
          mMaterial->mRotPivotOffset[pass].x,
          mMaterial->mRotPivotOffset[pass].y,
          0.0f);
-      
+
       MatrixF rotationMat = MatrixF(EulerF(0.0, 0.0, rotationAngle), Point3F(0.5, 0.5, 0.0));
       MatrixF test(true);
       test.setColumn(3, pivotPoint);
@@ -1078,7 +1085,7 @@ void ProcessedShaderMaterial::_setShaderConstants(SceneRenderState * state, cons
       Point3F fogData;
       fogData.x = sgData.fogDensity;
       fogData.y = sgData.fogDensityOffset;
-      fogData.z = sgData.fogHeightFalloff;     
+      fogData.z = sgData.fogHeightFalloff;
       shaderConsts->set( handles->mFogDataSC, fogData );
    }
 
@@ -1095,7 +1102,7 @@ void ProcessedShaderMaterial::_setShaderConstants(SceneRenderState * state, cons
 
    shaderConsts->setSafe(handles->mDampnessSC, MATMGR->getDampnessClamped());
    shaderConsts->setSafe(handles->mIsCapturingSC, (S32)state->isCapturing());
-   
+
    // If the shader constants have not been lost then
    // they contain the content from a previous render pass.
    //
@@ -1105,7 +1112,7 @@ void ProcessedShaderMaterial::_setShaderConstants(SceneRenderState * state, cons
    // NOTE: This assumes we're not animating material parameters
    // in a way that doesn't cause a shader reload... this isn't
    // being done now, but it could change in the future.
-   // 
+   //
    if ( !shaderConsts->wasLost() )
       return;
 
@@ -1113,7 +1120,7 @@ void ProcessedShaderMaterial::_setShaderConstants(SceneRenderState * state, cons
    shaderConsts->setSafe(handles->mMetalnessSC, mMaterial->mMetalness[stageNum]);
    shaderConsts->setSafe(handles->mGlowMulSC, mMaterial->mGlowMul[stageNum]);
 
-   shaderConsts->setSafe(handles->mParallaxInfoSC, mMaterial->mParallaxScale[stageNum]);   
+   shaderConsts->setSafe(handles->mParallaxInfoSC, mMaterial->mParallaxScale[stageNum]);
    shaderConsts->setSafe(handles->mMinnaertConstantSC, mMaterial->mMinnaertConstant[stageNum]);
 
    if ( handles->mSubSurfaceParamsSC->isValid() )
@@ -1143,7 +1150,7 @@ void ProcessedShaderMaterial::_setShaderConstants(SceneRenderState * state, cons
       shaderConsts->set( handles->mOneOverRTSizeSC, oneOverTargetSize );
    }
 
-   shaderConsts->setSafe(handles->mTileScaleSC, mMaterial->mTileScale[stageNum]);   
+   shaderConsts->setSafe(handles->mTileScaleSC, mMaterial->mTileScale[stageNum]);
 
    // set detail scale
    shaderConsts->setSafe(handles->mDetailScaleSC, mMaterial->mDetailScale[stageNum]);
@@ -1152,7 +1159,7 @@ void ProcessedShaderMaterial::_setShaderConstants(SceneRenderState * state, cons
    // MFT_ImposterVert
    if ( handles->mImposterUVs->isValid() )
    {
-      U32 uvCount = getMin( mMaterial->mImposterUVs.size(), 64 ); // See imposter.hlsl   
+      U32 uvCount = getMin( mMaterial->mImposterUVs.size(), 64 ); // See imposter.hlsl
       AlignedArray<Point4F> imposterUVs( uvCount, sizeof( Point4F ), (U8*)mMaterial->mImposterUVs.address(), false );
       shaderConsts->set( handles->mImposterUVs, imposterUVs );
    }
@@ -1161,7 +1168,7 @@ void ProcessedShaderMaterial::_setShaderConstants(SceneRenderState * state, cons
    // Diffuse
    shaderConsts->setSafe(handles->mDiffuseColorSC, mMaterial->mDiffuse[stageNum]);
 
-   shaderConsts->setSafe( handles->mAlphaTestValueSC, mClampF( (F32)mMaterial->mAlphaRef / 255.0f, 0.0f, 1.0f ) );      
+   shaderConsts->setSafe( handles->mAlphaTestValueSC, mClampF( (F32)mMaterial->mAlphaRef / 255.0f, 0.0f, 1.0f ) );
 
    if(handles->mDiffuseAtlasParamsSC)
    {
@@ -1186,7 +1193,7 @@ void ProcessedShaderMaterial::_setShaderConstants(SceneRenderState * state, cons
       // Sanity check the wrap flags
       //AssertWarn(mMaterial->mTextureAddressModeU == mMaterial->mTextureAddressModeV, "Addresing mode mismatch, texture atlasing will be confused");
       Point4F atlasTileParams( mMaterial->mCellIndex[stageNum].x, // Tile co-ordinate, ie: [0, 3]
-         mMaterial->mCellIndex[stageNum].y, 
+         mMaterial->mCellIndex[stageNum].y,
          0.0f, 0.0f ); // TODO: Wrap mode flags?
       shaderConsts->setSafe(handles->mDiffuseAtlasTileSC, atlasTileParams);
    }
@@ -1196,19 +1203,19 @@ void ProcessedShaderMaterial::_setShaderConstants(SceneRenderState * state, cons
       // Sanity check the wrap flags
       //AssertWarn(mMaterial->mTextureAddressModeU == mMaterial->mTextureAddressModeV, "Addresing mode mismatch, texture atlasing will be confused");
       Point4F atlasTileParams( mMaterial->mCellIndex[stageNum].x, // Tile co-ordinate, ie: [0, 3]
-         mMaterial->mCellIndex[stageNum].y, 
+         mMaterial->mCellIndex[stageNum].y,
          0.0f, 0.0f ); // TODO: Wrap mode flags?
       shaderConsts->setSafe(handles->mBumpAtlasTileSC, atlasTileParams);
    }
 
    // Deferred Shading: Determine Material Info Flags
-   S32 matInfoFlags = 
-            (mMaterial->mReceiveShadows[stageNum] ? 1 : 0) | //ReceiveShadows 
+   S32 matInfoFlags =
+            (mMaterial->mReceiveShadows[stageNum] ? 1 : 0) | //ReceiveShadows
             (mMaterial->mSubSurface[stageNum] ? 1 << 2 : 0)| //subsurface
-            (mMaterial->mIgnoreLighting[stageNum] ? 1 << 3 : 0);  //IgnoreLighting 
-   
+            (mMaterial->mIgnoreLighting[stageNum] ? 1 << 3 : 0);  //IgnoreLighting
+
    mMaterial->mMatInfoFlags[stageNum] = matInfoFlags / 255.0f;
-   shaderConsts->setSafe(handles->mMatInfoFlagsSC, mMaterial->mMatInfoFlags[stageNum]);   
+   shaderConsts->setSafe(handles->mMatInfoFlagsSC, mMaterial->mMatInfoFlags[stageNum]);
    if( handles->mAccuScaleSC->isValid() )
       shaderConsts->set( handles->mAccuScaleSC, mMaterial->mAccuScale[stageNum] );
    if( handles->mAccuDirectionSC->isValid() )
@@ -1219,6 +1226,10 @@ void ProcessedShaderMaterial::_setShaderConstants(SceneRenderState * state, cons
       shaderConsts->set( handles->mAccuCoverageSC, mMaterial->mAccuCoverage[stageNum] );
    if( handles->mAccuSpecularSC->isValid() )
       shaderConsts->set( handles->mAccuSpecularSC, mMaterial->mAccuSpecular[stageNum] );
+
+   if ( handles->mMultConstSC->isValid() )
+      shaderConsts->set( handles->mMultConstSC, mMaterial->mMultConstant );
+
 }
 
 bool ProcessedShaderMaterial::_hasCubemap(U32 pass)
@@ -1246,7 +1257,7 @@ void ProcessedShaderMaterial::setTransforms(const MatrixSet &matrixSet, SceneRen
    if ( handles->mModelViewProjSC->isValid() )
       shaderConsts->set( handles->mModelViewProjSC, matrixSet.getWorldViewProjection() );
    if ( handles->mObjTransSC->isValid() )
-      shaderConsts->set( handles->mObjTransSC, matrixSet.getObjectToWorld() );      
+      shaderConsts->set( handles->mObjTransSC, matrixSet.getObjectToWorld() );
    if ( handles->mWorldToObjSC->isValid() )
       shaderConsts->set( handles->mWorldToObjSC, matrixSet.getWorldToObject() );
    if ( handles->mWorldToCameraSC->isValid() )
@@ -1342,7 +1353,7 @@ void ProcessedShaderMaterial::setSceneInfo(SceneRenderState * state, const Scene
 
    shaderConsts->setSafe(handles->mVisiblitySC, sgData.visibility);
 
-   shaderConsts->setSafe(handles->mEyePosWorldSC, eyePosWorld);   
+   shaderConsts->setSafe(handles->mEyePosWorldSC, eyePosWorld);
 
    if ( handles->mEyePosSC->isValid() )
    {
@@ -1350,7 +1361,7 @@ void ProcessedShaderMaterial::setSceneInfo(SceneRenderState * state, const Scene
       tempMat.inverse();
       Point3F eyepos;
       tempMat.mulP( eyePosWorld, &eyepos );
-      shaderConsts->set(handles->mEyePosSC, eyepos);   
+      shaderConsts->set(handles->mEyePosSC, eyepos);
    }
 
    shaderConsts->setSafe(handles->mEyeMatSC, state->getCameraTransform());
@@ -1411,7 +1422,7 @@ void ProcessedShaderMaterial::setBuffers( GFXVertexBufferHandleBase *vertBuffer,
 bool ProcessedShaderMaterial::stepInstance()
 {
    PROFILE_SCOPE(ProcessedShaderMaterial_stepInstance);
-   AssertFatal( mInstancingState, "ProcessedShaderMaterial::stepInstance - This material isn't instanced!" );  
+   AssertFatal( mInstancingState, "ProcessedShaderMaterial::stepInstance - This material isn't instanced!" );
    return mInstancingState->step( &_getShaderConstBuffer( 0 )->mInstPtr );
 }
 
@@ -1424,7 +1435,7 @@ MaterialParameters* ProcessedShaderMaterial::allocMaterialParameters()
       buffers[i] = _getRPD(i)->shader->allocConstBuffer();
    // smp now owns these buffers.
    smp->setBuffers(mShaderConstDesc, buffers);
-   return smp;   
+   return smp;
 }
 
 MaterialParameterHandle* ProcessedShaderMaterial::getMaterialParameterHandle(const String& name)
@@ -1435,7 +1446,7 @@ MaterialParameterHandle* ProcessedShaderMaterial::getMaterialParameterHandle(con
       if (mParameterHandles[i]->getName().equal(name))
          return mParameterHandles[i];
    }
-   
+
    // If we didn't find it, we have to add it to support shader reloading.
 
    Vector<GFXShader*> shaders;
@@ -1451,7 +1462,7 @@ MaterialParameterHandle* ProcessedShaderMaterial::getMaterialParameterHandle(con
 
 /// This is here to deal with the differences between ProcessedCustomMaterials and ProcessedShaderMaterials.
 GFXShaderConstBuffer* ProcessedShaderMaterial::_getShaderConstBuffer( const U32 pass )
-{   
+{
    if (mCurrentParams && pass < mPasses.size())
    {
       return static_cast<ShaderMaterialParameters*>(mCurrentParams)->getBuffer(pass);

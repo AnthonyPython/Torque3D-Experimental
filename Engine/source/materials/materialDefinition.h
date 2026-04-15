@@ -237,6 +237,7 @@ public:
    U32      mMetalChan[MAX_STAGES];
    F32      mGlowMul[MAX_STAGES];
 
+   LinearColorF   mMultConstant;
    /// The strength scalar for the detail normal map.
    F32      mDetailNormalMapStrength[MAX_STAGES];
    bool     mAccuEnabled[MAX_STAGES];
@@ -247,7 +248,7 @@ public:
    F32      mAccuSpecular[MAX_STAGES];
 
    /// This color is the diffuse color of the material
-   /// or if it has a texture it is multiplied against 
+   /// or if it has a texture it is multiplied against
    /// the diffuse texture color.
    LinearColorF mDiffuse[MAX_STAGES];
 
@@ -322,7 +323,7 @@ public:
    BlendOp mTranslucentBlendOp;
    bool mTranslucentZWrite;
 
-   /// A generic setting which tells the system to skip 
+   /// A generic setting which tells the system to skip
    /// generation of shadows from this material.
    bool mCastShadows;
 
@@ -369,7 +370,7 @@ public:
    ///@}
 
    String mMapTo; // map Material to this texture name
-  
+
    ///
    /// Material interface
    ///
@@ -389,11 +390,11 @@ public:
 
    void flush();
 
-   /// Re-initializes all the material instances 
+   /// Re-initializes all the material instances
    /// that use this material.
    void reload();
 
-   /// Called to update time based parameters for a material.  Ensures 
+   /// Called to update time based parameters for a material.  Ensures
    /// that it only happens once per tick.
    void updateTimeBasedParams();
 

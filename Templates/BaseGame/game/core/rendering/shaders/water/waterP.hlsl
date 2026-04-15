@@ -23,8 +23,12 @@
 #include "../shaderModelAutoGen.hlsl"
 #include "../torque.hlsl"
 
+// Uncomment one of these lines to debug the flowmap effect.
+// #define FLOWMAP_DEBUG_UV      // Visualizes the UV coordinates being used for the flowmap.
+// #define FLOWMAP_DEBUG_TEXTURE // Visualizes the flowmap texture itself.
+
 //-----------------------------------------------------------------------------
-// Defines                                                                  
+// Defines
 //-----------------------------------------------------------------------------
 
 #define PIXEL_DIST			IN.rippleTexCoord2.z
@@ -64,34 +68,35 @@
 #define SPEC_COLOR         specularParams.xyz
 
 //-----------------------------------------------------------------------------
-// Structures                                                                  
+// Structures
 //-----------------------------------------------------------------------------
 
 struct ConnectData
 {
-   float4 hpos             : TORQUE_POSITION;   
-   
+   float4 hpos             : TORQUE_POSITION;
+
    // TexCoord 0 and 1 (xy,zw) for ripple texture lookup
-   float4 rippleTexCoord01 : TEXCOORD0;   
-   
-   // xy is TexCoord 2 for ripple texture lookup 
+   float4 rippleTexCoord01 : TEXCOORD0;
+
+   // xy is TexCoord 2 for ripple texture lookup
    // z is the Worldspace unit distance/depth of this vertex/pixel
    // w is amount of the crestFoam ( more at crest of waves ).
    float4 rippleTexCoord2  : TEXCOORD1;
-   
+
    // Screenspace vert position BEFORE wave transformation
    float4 posPreWave       : TEXCOORD2;
-   
+
    // Screenspace vert position AFTER wave transformation
-   float4 posPostWave      : TEXCOORD3;   
-    
-   // Objectspace vert position BEFORE wave transformation	
+   float4 posPostWave      : TEXCOORD3;
+
+   // Objectspace vert position BEFORE wave transformation
    // w coord is world space z position.
-   float4 objPos           : TEXCOORD4;   
-   
+   float4 objPos           : TEXCOORD4;
+
    float4 foamTexCoords    : TEXCOORD5;
-   
-   float3x3 tangentMat     : TEXCOORD6;
+
+   float2 undulatePos      : TEXCOORD6;
+   float3x3 tangentMat     : TEXCOORD7; // Note: This uses TEXCOORD 7, 8, and 9
 };
 
 //-----------------------------------------------------------------------------
@@ -103,7 +108,7 @@ float fresnel(float NdotV, float bias, float power)
 }
 
 //-----------------------------------------------------------------------------
-// Uniforms                                                                  
+// Uniforms
 //-----------------------------------------------------------------------------
 TORQUE_UNIFORM_SAMPLER2D(bumpMap,0);
 TORQUE_UNIFORM_SAMPLER2D(deferredTex, 1);
@@ -112,6 +117,12 @@ TORQUE_UNIFORM_SAMPLER2D(refractBuff, 3);
 TORQUE_UNIFORM_SAMPLERCUBE(skyMap, 4);
 TORQUE_UNIFORM_SAMPLER2D(foamMap, 5);
 TORQUE_UNIFORM_SAMPLER1D(depthGradMap, 6);
+TORQUE_UNIFORM_SAMPLER2D(flowMap, 7);
+uniform float        elapsedTime;
+uniform float2       rippleTexScale[3];
+uniform float        flowSpeed;
+uniform float        flowMagnitude;
+uniform bool         hasFlowMap;
 uniform float4       specularParams;
 uniform float4       baseColor;
 uniform float4       miscParams;
@@ -136,56 +147,85 @@ uniform float        sunBrightness;
 uniform float        reflectivity;
 
 //-----------------------------------------------------------------------------
-// Main                                                                        
+// Main
 //-----------------------------------------------------------------------------
 float4 main( ConnectData IN ) : TORQUE_TARGET0
-{    
-   // Get the bumpNorm...
-   float3 bumpNorm = ( TORQUE_TEX2D( bumpMap, IN.rippleTexCoord01.xy ).rgb * 2.0 - 1.0 ) * rippleMagnitude.x;
-   bumpNorm       += ( TORQUE_TEX2D( bumpMap, IN.rippleTexCoord01.zw ).rgb * 2.0 - 1.0 ) * rippleMagnitude.y;      
-   bumpNorm       += ( TORQUE_TEX2D( bumpMap, IN.rippleTexCoord2.xy ).rgb * 2.0 - 1.0 ) * rippleMagnitude.z;         
-  
-   bumpNorm = normalize( bumpNorm );
+{
+   // --- Combined Flowmap and Ripple Logic ---
+
+   // Create the large-scale, directional flow using a standard two-layer
+   //    cross-fading flowmap technique. This will form the base movement of the water.
+   // IN.undulatePos contains the UV coordinates for the flowmap, calculated in the vertex shader.
+   float2 flowmapUV = IN.undulatePos;
+   float3 flowNormal = float3(0.0, 0.0, 1.0);
+   float flowFoam = 0.0;
+
+   if (hasFlowMap && flowMagnitude > 0.0)
+   {
+      float4 flowmapSample = TORQUE_TEX2D(flowMap, flowmapUV);
+      float2 flowDirection = flowmapSample.rg;
+      flowFoam = flowmapSample.b;
+      flowDirection = (flowDirection * 2.0) - 1.0;
+      flowDirection *= flowMagnitude;
+
+      float timePhase = frac(elapsedTime * flowSpeed);
+      float2 offset1 = flowDirection * timePhase;
+      float2 offset2 = flowDirection * frac(timePhase + 0.5);
+
+      float3 flowNormal1 = TORQUE_TEX2D(bumpMap, flowmapUV + offset1).rgb * 2.0 - 1.0;
+      float3 flowNormal2 = TORQUE_TEX2D(bumpMap, flowmapUV + offset2).rgb * 2.0 - 1.0;
+
+      float blendFactor = abs(1.0 - (timePhase * 2.0));
+      flowNormal = lerp(flowNormal1, flowNormal2, blendFactor);
+   }
+
+   // high-frequency ripple detail from the original three-layer system.
+   float3 rippleNormal = ( TORQUE_TEX2D( bumpMap, IN.rippleTexCoord01.xy ).rgb * 2.0 - 1.0 ) * rippleMagnitude.x;
+   rippleNormal       += ( TORQUE_TEX2D( bumpMap, IN.rippleTexCoord01.zw ).rgb * 2.0 - 1.0 ) * rippleMagnitude.y;
+   rippleNormal       += ( TORQUE_TEX2D( bumpMap, IN.rippleTexCoord2.xy ).rgb * 2.0 - 1.0 ) * rippleMagnitude.z;
+
+   // Combine the two normal effects and apply final transformations.
+   float3 bumpNorm = normalize(flowNormal + rippleNormal);
    bumpNorm = lerp( bumpNorm, float3(0,0,1), 1.0 - rippleMagnitude.w );
-   bumpNorm = mul( bumpNorm, IN.tangentMat ); 
-   
+   bumpNorm = mul( bumpNorm, IN.tangentMat );
+
    // Get depth of the water surface (this pixel).
    // Convert from WorldSpace to EyeSpace.
-   float pixelDepth = PIXEL_DIST / farPlaneDist; 
-   
+   float pixelDepth = PIXEL_DIST / farPlaneDist;
+
    float2 deferredCoord = viewportCoordToRenderTarget( IN.posPostWave, rtParams1 );
 
-   float startDepth = TORQUE_DEFERRED_UNCONDITION( deferredTex, deferredCoord ).w;  
-   
+   float startDepth = TORQUE_DEFERRED_UNCONDITION( deferredTex, deferredCoord ).w;
+
    // The water depth in world units of the undistorted pixel.
    float startDelta = ( startDepth - pixelDepth );
    startDelta = max( startDelta, 0.0 );
    startDelta *= farPlaneDist;
-            
+
    // Calculate the distortion amount for the water surface.
-   // 
-   // We subtract a little from it so that we don't 
+   //
+   // We subtract a little from it so that we don't
    // distort where the water surface intersects the
    // camera near plane.
    float distortAmt = saturate( ( PIXEL_DIST - DISTORT_START_DIST ) / DISTORT_END_DIST );
-   
+
    // Scale down distortion in shallow water.
    distortAmt *= saturate( startDelta / DISTORT_FULL_DEPTH );
 
    // Do the intial distortion... we might remove it below.
    float2 distortDelta = bumpNorm.xy * distortAmt;
    float4 distortPos = IN.posPostWave;
-   distortPos.xy += distortDelta;      
-      
-   deferredCoord = viewportCoordToRenderTarget( distortPos, rtParams1 );   
+   distortPos.xy += distortDelta;
+
+   deferredCoord = viewportCoordToRenderTarget( distortPos, rtParams1 );
 
    // Get deferred depth at the position of this distorted pixel.
-   float deferredDepth = TORQUE_DEFERRED_UNCONDITION( deferredTex, deferredCoord ).w;      
+   float deferredDepth = TORQUE_DEFERRED_UNCONDITION( deferredTex, deferredCoord ).w;
    if ( deferredDepth > 0.99 )
      deferredDepth = 5.0;
-    
+
    float delta = ( deferredDepth - pixelDepth ) * farPlaneDist;
-      
+
    if ( delta < 0.0 )
    {
       // If we got a negative delta then the distorted
@@ -194,21 +234,21 @@ float4 main( ConnectData IN ) : TORQUE_TARGET0
       distortPos = IN.posPostWave;
       delta = startDelta;
       distortAmt = 0;
-   } 
+   }
    else
    {
       float diff = ( deferredDepth - startDepth ) * farPlaneDist;
-   
+
       if ( diff < 0 )
       {
          distortAmt = saturate( ( PIXEL_DIST - DISTORT_START_DIST ) / DISTORT_END_DIST );
          distortAmt *= saturate( delta / DISTORT_FULL_DEPTH );
 
          distortDelta = bumpNorm.xy * distortAmt;
-         
-         distortPos = IN.posPostWave;         
-         distortPos.xy += distortDelta;    
-        
+
+         distortPos = IN.posPostWave;
+         distortPos.xy += distortDelta;
+
          deferredCoord = viewportCoordToRenderTarget( distortPos, rtParams1 );
 
          // Get deferred depth at the position of this distorted pixel.
@@ -217,7 +257,7 @@ float4 main( ConnectData IN ) : TORQUE_TARGET0
             deferredDepth = 5.0;
          delta = ( deferredDepth - pixelDepth ) * farPlaneDist;
       }
-       
+
       if ( delta < 0.1 )
       {
          // If we got a negative delta then the distorted
@@ -226,117 +266,120 @@ float4 main( ConnectData IN ) : TORQUE_TARGET0
          distortPos = IN.posPostWave;
          delta = startDelta;
          distortAmt = 0;
-      } 
+      }
    }
-     
+
    float4 temp = IN.posPreWave;
-   temp.xy += bumpNorm.xy * distortAmt;   
-   float2 reflectCoord = viewportCoordToRenderTarget( temp, rtParams1 );     
-   
+   temp.xy += bumpNorm.xy * distortAmt;
+   float2 reflectCoord = viewportCoordToRenderTarget( temp, rtParams1 );
+
    float2 refractCoord = viewportCoordToRenderTarget( distortPos, rtParams1 );
-   
-   float4 fakeColor = float4(ambientColor,1);   
+
+   float4 fakeColor = float4(ambientColor,1);
    float3 eyeVec = IN.objPos.xyz - eyePos;
    eyeVec = mul( (float3x3)modelMat, eyeVec );
    eyeVec = mul( IN.tangentMat, eyeVec );
    float3 reflectionVec = reflect( eyeVec, bumpNorm );
-   
-   // Use fakeColor for ripple-normals that are angled towards the camera   
+
+   // Use fakeColor for ripple-normals that are angled towards the camera
    eyeVec = -eyeVec;
    eyeVec = normalize( eyeVec );
-   float ang = saturate( dot( eyeVec, bumpNorm ) );   
-   float fakeColorAmt = ang; 
-   
+   float ang = saturate( dot( eyeVec, bumpNorm ) );
+   float fakeColorAmt = ang;
+
    // for verts far from the reflect plane z position
    float rplaneDist = abs( REFLECT_PLANE_Z - IN.objPos.w );
-   rplaneDist = saturate( ( rplaneDist - 1.0 ) / 2.0 );  
-   rplaneDist *= ISRIVER;   
-   fakeColorAmt = max( fakeColorAmt, rplaneDist );        
- 
+   rplaneDist = saturate( ( rplaneDist - 1.0 ) / 2.0 );
+   rplaneDist *= ISRIVER;
+   fakeColorAmt = max( fakeColorAmt, rplaneDist );
+
 #ifndef UNDERWATER
-   
+
    // Get foam color and amount
    float2 foamRippleOffset = bumpNorm.xy * FOAM_RIPPLE_INFLUENCE;
-   IN.foamTexCoords.xy += foamRippleOffset; 
+   IN.foamTexCoords.xy += foamRippleOffset;
    IN.foamTexCoords.zw += foamRippleOffset;
-   
-   float4 foamColor = TORQUE_TEX2D( foamMap, IN.foamTexCoords.xy );   
-   foamColor += TORQUE_TEX2D( foamMap, IN.foamTexCoords.zw ); 
+
+   float4 foamColor = TORQUE_TEX2D( foamMap, IN.foamTexCoords.xy );
+   foamColor += TORQUE_TEX2D( foamMap, IN.foamTexCoords.zw );
    foamColor = saturate( foamColor );
-   
+
    // Modulate foam color by ambient color
    // so we don't have glowing white foam at night.
    foamColor.rgb = lerp( foamColor.rgb, ambientColor.rgb, FOAM_AMBIENT_LERP );
-   
-   float foamDelta = saturate( delta / FOAM_MAX_DEPTH );      
-   float foamAmt = 1 - pow( foamDelta, 2 );
-   
+
+   // --- Foam Amount Calculation ---
+   //  Depth-based foam for shorelines
+   float foamDelta = saturate( delta / FOAM_MAX_DEPTH );
+   float shoreFoam = 1.0 - pow( foamDelta, 2.0 );
+
    // Fade out the foam in very very low depth,
    // this improves the shoreline a lot.
-    float diff = 0.8 - foamAmt;
-    if ( diff < 0.0 )   
-      foamAmt -= foamAmt * abs( diff ) / 0.2;   
-   
-   foamAmt *= FOAM_OPACITY * foamColor.a;
-   
-   foamColor.rgb *= FOAM_OPACITY * foamAmt * foamColor.a;
+    float diff = 0.8 - shoreFoam;
+    if ( diff < 0.0 )
+      shoreFoam -= shoreFoam * abs( diff ) / 0.2;
+
+   // Combine with flowmap-based foam and apply opacity
+   float foamAmt = saturate(shoreFoam + flowFoam) * FOAM_OPACITY * foamColor.a;
+
+   foamColor.rgb *= foamAmt;
 
    // Get reflection map color.
-   float4 refMapColor = TORQUE_TEX2D( reflectMap, reflectCoord );  
-   
+   float4 refMapColor = TORQUE_TEX2D( reflectMap, reflectCoord );
+
    // If we do not have a reflection texture then we use the cubemap.
    refMapColor = lerp( refMapColor, TORQUE_TEXCUBE( skyMap, reflectionVec ), NO_REFLECT );
-   
+
    fakeColor = ( TORQUE_TEXCUBE( skyMap, reflectionVec ) );
    fakeColor.a = 1;
    // Combine reflection color and fakeColor.
    float4 reflectColor = lerp( refMapColor, fakeColor, fakeColorAmt );
-   
+
    // Get refract color
-   float4 refractColor = hdrDecode( TORQUE_TEX2D( refractBuff, refractCoord ) );    
-   
-   // We darken the refraction color a bit to make underwater 
+   float4 refractColor = hdrDecode( TORQUE_TEX2D( refractBuff, refractCoord ) );
+
+   // We darken the refraction color a bit to make underwater
    // elements look wet.  We fade out this darkening near the
    // surface in order to not have hard water edges.
    // @param WET_DEPTH The depth in world units at which full darkening will be recieved.
    // @param WET_COLOR_FACTOR The refract color is scaled down by this amount when at WET_DEPTH
    refractColor.rgb *= 1.0f - ( saturate( delta / WET_DEPTH ) * WET_COLOR_FACTOR );
-   
+
    // Add Water fog/haze.
    float fogDelta = delta - FOG_DENSITY_OFFSET;
 
    if ( fogDelta < 0.0 )
-      fogDelta = 0.0;     
-   float fogAmt = 1.0 - saturate( exp( -FOG_DENSITY * fogDelta )  );  
-   
+      fogDelta = 0.0;
+   float fogAmt = 1.0 - saturate( exp( -FOG_DENSITY * fogDelta )  );
+
    // Calculate the water "base" color based on depth.
    float4 waterBaseColor = baseColor * TORQUE_TEX1D( depthGradMap, saturate( delta / depthGradMax ) );
-      
+
    // Modulate baseColor by the ambientColor.
-   waterBaseColor *= float4( ambientColor.rgb, 1 );     
-   
+   waterBaseColor *= float4( ambientColor.rgb, 1 );
+
    // calc "diffuse" color by lerping from the water color
-   // to refraction image based on the water clarity.   
+   // to refraction image based on the water clarity.
    float4 diffuseColor = lerp( refractColor, waterBaseColor, fogAmt );
-   
-   // fresnel calculation   
-   float fresnelTerm = fresnel( ang, FRESNEL_BIAS, FRESNEL_POWER );	
-   
+
+   // fresnel calculation
+   float fresnelTerm = fresnel( ang, FRESNEL_BIAS, FRESNEL_POWER );
+
    // Scale the frensel strength by fog amount
    // so that parts that are very clear get very little reflection.
-   fresnelTerm *= fogAmt;    
-   
+   fresnelTerm *= fogAmt;
+
    // Also scale the frensel by our distance to the
    // water surface.  This removes the hard reflection
    // when really close to the water surface.
    fresnelTerm *= saturate( PIXEL_DIST - 0.1 );
-   
+
    fresnelTerm *= reflectivity;
 
    // Combine the diffuse color and reflection image via the
    // fresnel term and set out output color.
    float4 OUT = lerp( diffuseColor, reflectColor, fresnelTerm );
-   
+
    float3 lightVec = inLightVec;
 
    // Get some specular reflection.
@@ -345,39 +388,53 @@ float4 main( ConnectData IN ) : TORQUE_TARGET0
    newbump = normalize( newbump );
    float3 halfAng = normalize( eyeVec + -lightVec );
    float specular = saturate( dot( newbump, halfAng ) );
-   specular = pow( specular, SPEC_POWER );   
-   
+   specular = pow( specular, SPEC_POWER );
+
    // Scale down specularity in very shallow water to improve the transparency of the shoreline.
    specular *= saturate( delta / 2 );
-   OUT.rgb = OUT.rgb + ( SPEC_COLOR * specular.xxx );      
+   OUT.rgb = OUT.rgb + ( SPEC_COLOR * specular.xxx );
 
 #else
 
-   float4 refractColor = hdrDecode( TORQUE_TEX2D( refractBuff, refractCoord ) );   
-   float4 OUT = refractColor;  
-   
+   float4 refractColor = hdrDecode( TORQUE_TEX2D( refractBuff, refractCoord ) );
+   float4 OUT = refractColor;
+
 #endif
 
 #ifndef UNDERWATER
 
    OUT.rgb = OUT.rgb + foamColor.rgb;
 
-   float factor = computeSceneFog( eyePos, 
-                                   IN.objPos.xyz, 
+   float factor = computeSceneFog( eyePos,
+                                   IN.objPos.xyz,
                                    IN.objPos.w,
                                    fogData.x,
                                    fogData.y,
                                    fogData.z );
 
-   OUT.rgb = lerp( OUT.rgb, fogColor.rgb, 1.0 - saturate( factor ) );  
-   
+   OUT.rgb = lerp( OUT.rgb, fogColor.rgb, 1.0 - saturate( factor ) );
+
    //OUT.rgb = fogColor.rgb;
-   
+
 #endif
 
    OUT.a = 1.0;
 
-   //return OUT;
+   #if defined(FLOWMAP_DEBUG_UV)
+      // This debug mode visualizes the UV coordinates.
+      // Since the UVs are in the [0,1] range, we can render them directly.
+      return hdrEncode(float4(flowmapUV.x, flowmapUV.y, 0.0, 1.0));
+
+   #elif defined(FLOWMAP_DEBUG_TEXTURE)
+      // This debug mode will render the raw flowmap texture across the water surface.
+      float4 debugColor = float4(0.5, 0.5, 0.5, 1.0);
+      if (hasFlowMap)
+      {
+         debugColor = TORQUE_TEX2D(flowMap, flowmapUV);
+      }
+
+      return hdrEncode(debugColor);
+   #endif
 
    return hdrEncode( OUT );
 }

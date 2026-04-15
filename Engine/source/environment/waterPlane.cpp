@@ -657,6 +657,9 @@ void WaterPlane::setShaderParams( SceneRenderState *state, BaseMatInstance* mat,
    // set vertex shader constants
    //-----------------------------------   
    matParams->setSafe(paramHandles.mGridElementSizeSC, (F32)mGridElementSize);
+   F32 planeScale = mGridElementSize * mGridSize;
+   matParams->setSafe(paramHandles.mObjScaleSC, Point2F(planeScale, planeScale));
+
    //matParams->setSafe( paramHandles.mReflectTexSizeSC, mReflectTexSize );
    if ( paramHandles.mModelMatSC->isValid() )
       matParams->set(paramHandles.mModelMatSC, getRenderTransform(), GFXSCT_Float4x4);

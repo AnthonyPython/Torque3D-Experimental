@@ -58,16 +58,16 @@ public:
    GFXShaderConstHandle* mAccuCoverageSC;
    GFXShaderConstHandle* mAccuSpecularSC;
    GFXShaderConstHandle* mFogDataSC;
-   GFXShaderConstHandle* mFogColorSC;   
+   GFXShaderConstHandle* mFogColorSC;
    GFXShaderConstHandle* mDetailScaleSC;
    GFXShaderConstHandle* mVisiblitySC;
    GFXShaderConstHandle* mColorMultiplySC;
    GFXShaderConstHandle* mAlphaTestValueSC;
    GFXShaderConstHandle* mModelViewProjSC;
-   GFXShaderConstHandle* mWorldViewOnlySC;     
+   GFXShaderConstHandle* mWorldViewOnlySC;
    GFXShaderConstHandle* mWorldToCameraSC;
    GFXShaderConstHandle* mCameraToWorldSC;
-   GFXShaderConstHandle* mWorldToObjSC;         
+   GFXShaderConstHandle* mWorldToObjSC;
    GFXShaderConstHandle* mViewToObjSC;
    GFXShaderConstHandle* mInvCameraTransSC;
    GFXShaderConstHandle* mCameraToScreenSC;
@@ -106,6 +106,9 @@ public:
    GFXShaderConstHandle* mNodeTransforms;
 
    GFXShaderConstHandle* mIsCapturingSC;
+
+   // Example
+   GFXShaderConstHandle* mMultConstSC;
    struct customHandleData
    {
 	   StringTableEntry handleName;
@@ -114,7 +117,6 @@ public:
    Vector<customHandleData> mCustomHandles;
 
    void init( GFXShader* shader, CustomMaterial* mat = NULL);
-   
 };
 
 class ShaderRenderPassData : public RenderPassData
@@ -143,7 +145,7 @@ public:
    ~ProcessedShaderMaterial();
 
    // ProcessedMaterial
-   bool init(   const FeatureSet &features, 
+   bool init(   const FeatureSet &features,
                         const GFXVertexFormat *vertexFormat,
                         const MatFeaturesDelegate &featuresDelegate ) override;
    bool setupPass(SceneRenderState *, const SceneData& sgData, U32 pass) override;
@@ -152,12 +154,12 @@ public:
    void setNodeTransforms(const MatrixF *address, const U32 numTransforms, const U32 pass) override;
    void setCustomShaderData(Vector<CustomShaderBindingData> &shaderData, const U32 pass) override;
    void setSceneInfo(SceneRenderState *, const SceneData& sgData, U32 pass) override;
-   void setBuffers(GFXVertexBufferHandleBase* vertBuffer, GFXPrimitiveBufferHandle* primBuffer) override; 
+   void setBuffers(GFXVertexBufferHandleBase* vertBuffer, GFXPrimitiveBufferHandle* primBuffer) override;
    bool stepInstance() override;
    void dumpMaterialInfo() override;
    void getMaterialInfo(GuiTreeViewCtrl* tree, U32 item) override;
-   MaterialParameters* allocMaterialParameters() override;    
-   MaterialParameters* getDefaultMaterialParameters() override { return mDefaultParameters; }   
+   MaterialParameters* allocMaterialParameters() override;
+   MaterialParameters* getDefaultMaterialParameters() override { return mDefaultParameters; }
    MaterialParameterHandle* getMaterialParameterHandle(const String& name) override;
    U32 getNumStages() override;
 
@@ -167,7 +169,7 @@ protected:
    MaterialParameters* mDefaultParameters;
    Vector<ShaderMaterialParameterHandle*> mParameterHandles;
 
-   /// Hold the instancing state data for the material.   
+   /// Hold the instancing state data for the material.
    class InstancingState
    {
       const static U32 COUNT = 200;
@@ -231,7 +233,7 @@ protected:
    protected:
 
       GFXVertexFormat mDeclFormat;
-      const GFXVertexFormat *mInstFormat;  
+      const GFXVertexFormat *mInstFormat;
       U8 *mBuffer;
       S32 mCount;
 
@@ -240,14 +242,14 @@ protected:
    /// The instancing state if this material
    /// supports instancing.
    InstancingState *mInstancingState;
-   
+
    /// @name Internal functions
    ///
    /// @{
 
    /// Adds a pass for the given stage.
-   virtual bool _addPass( ShaderRenderPassData &rpd, 
-      U32 &texIndex, 
+   virtual bool _addPass( ShaderRenderPassData &rpd,
+      U32 &texIndex,
       MaterialFeatureData &fd,
       U32 stageNum,
       const FeatureSet &features);
@@ -264,8 +266,8 @@ protected:
    virtual bool _createPasses( MaterialFeatureData &fd, U32 stageNum, const FeatureSet &features );
 
    /// Fills in the MaterialFeatureData for the given stage
-   virtual void _determineFeatures( U32 stageNum, 
-                                    MaterialFeatureData &fd, 
+   virtual void _determineFeatures( U32 stageNum,
+                                    MaterialFeatureData &fd,
                                     const FeatureSet &features );
 
    /// Do we have a cubemap on pass?

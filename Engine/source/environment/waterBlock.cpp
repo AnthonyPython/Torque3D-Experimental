@@ -422,6 +422,7 @@ void WaterBlock::setShaderParams( SceneRenderState *state, BaseMatInstance *mat,
    if ( paramHandles.mModelMatSC->isValid() )
       matParams->set(paramHandles.mModelMatSC, modelMat, GFXSCT_Float4x4);
    matParams->setSafe(paramHandles.mGridElementSizeSC, (F32)mGridElementSize);
+   matParams->setSafe(paramHandles.mObjScaleSC, Point2F(mObjScale.x, mObjScale.y));
 
    // set pixel shader constants
    //-----------------------------------
